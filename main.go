@@ -9,10 +9,17 @@ import (
 
 // генерит случайные слова из 5 букв
 // с помощью randomWord(5)
-func generate(cancel <-chan) <-chan {
-	out := make(chan)
+func generate(cancel <-chan struct{}) <-chan string {
+	out := make(chan string)
 	go func() {
-		// ...
+		defer close(out)
+		for {
+			select {
+			case out <- randomWord(5):
+			case <-cancel:
+				return
+			}
+		}
 	}()
 	return out
 }
@@ -20,36 +27,120 @@ func generate(cancel <-chan) <-chan {
 // выбирает слова, в которых не повторяются буквы,
 // abcde - подходит
 // abcda - не подходит
-func takeUnique(cancel <-chan, in <-chan) <-chan  {
-	out := make(chan)
+func takeUnique(cancel <-chan struct{}, in <-chan string) <-chan string {
+	out := make(chan string)
 	go func() {
-		// ...
+		defer close(out)
+		for {
+			select {
+			case str, ok := <-in:
+				if !ok {
+					return
+				}
+				if isUnique(str) {
+					select {
+					case out <- str:
+					case <-cancel:
+						return
+					}
+				} else {
+					continue
+				}
+			case <-cancel:
+				return
+			}
+		}
 	}()
 	return out
+}
+
+func isUnique(word string) bool {
+	uniqueTable := make(map[rune]int)
+	for _, val := range word {
+		uniqueTable[val]++
+	}
+	for count := range uniqueTable {
+		if uniqueTable[count] > 1 {
+			return false
+		}
+	}
+	return true
 }
 
 // переворачивает слова
 // abcde -> edcba
-func reverse(cancel <-chan, in <-chan) <-chan {
-	out := make(chan)
+func reverse(cancel <-chan struct{}, in <-chan string) <-chan string {
+	out := make(chan string)
 	go func() {
-		// ...
+		defer close(out)
+		for {
+			select {
+			case str, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case out <- reverseWord(str):
+				case <-cancel:
+					return
+				}
+			case <-cancel:
+				return
+			}
+		}
 	}()
 	return out
 }
 
+func reverseWord(str string) string {
+	rns := []rune(str)
+	for i, j := 0, len(rns)-1; i < j; i, j = i+1, j-1 {
+		rns[i], rns[j] = rns[j], rns[i]
+	}
+	return string(rns)
+}
+
 // объединяет c1 и c2 в общий канал
-func merge(cancel <-chan, c1, c2 <-chan) <-chan {
-	out := make(chan)
+func merge(cancel <-chan struct{}, c1, c2 <-chan string) <-chan string {
+	out := make(chan string)
+	closer := make(chan struct{})
 	go func() {
-		// ...
+		for {
+			select {
+			case out <- <-c1:
+			case <-cancel:
+				closer <- struct{}{}
+				return
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case out <- <-c2:
+			case <-cancel:
+				closer <- struct{}{}
+				return
+			}
+		}
+	}()
+	go func() {
+		for i := 0; i < 2; i++ {
+			<-closer
+		}
+		close(closer)
+		close(out)
 	}()
 	return out
 }
 
 // печатает первые n результатов
-func print(cancel <-chan, in <-chan, n int) {
-	// ...
+func print(cancel <-chan struct{}, in <-chan string, n int) {
+	for i := 0; i < n; i++ {
+		reversedWord := <-in
+		originalWord := reverseWord(reversedWord)
+		fmt.Print(originalWord, " -> ", reversedWord, "\n")
+	}
 }
 
 // конец решения
